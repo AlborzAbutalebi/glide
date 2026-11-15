@@ -124,6 +124,21 @@ enum SelfTest {
         ev = scenario("⌘ + click is left alone (zoom shortcuts)") { click(-1, flags: .maskCommand); wait(0.3) }
         check(ev.count == 1 && !ev[0].marked, "passed through unchanged")
 
+        driver.engine.output.simulateStalledLink = true
+        ev = scenario("display link stops delivering frames: the backup timer takes over") { click(-1); wait(0.6) }
+        driver.engine.output.simulateStalledLink = false
+        check(ev.reduce(0) { $0 + $1.dy } == -100, "total \(ev.reduce(0) { $0 + $1.dy }) pt == -100, in \(ev.count) events")
+        ev = scenario("display link back to normal afterwards") { click(-1); wait(0.6) }
+        check(ev.reduce(0) { $0 + $1.dy } == -100, "total \(ev.reduce(0) { $0 + $1.dy }) pt == -100")
+
+        var generator = SystemRandomNumberGenerator()
+        let gaps = (0..<40).map { _ in [0.02, 0.05, 0.12, 0.3, 0.7, 0.8, 0.9, 1.1].randomElement(using: &generator)! }
+        ev = scenario("stress: 40 clicks with gaps that stop and restart the output (\(Int(gaps.reduce(0, +))) s)") {
+            for gap in gaps { click(-1); wait(gap) }
+            wait(0.6)
+        }
+        check(ev.reduce(0) { $0 + $1.dy } == -4000, "total \(ev.reduce(0) { $0 + $1.dy }) pt == -4000 (no click lost)")
+
         settings.smoothScrolling = false
         driver.update(settings: settings)
         ev = scenario("smooth scrolling off: linear, instant") { click(-1); wait(0.2) }

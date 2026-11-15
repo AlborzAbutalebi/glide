@@ -68,7 +68,11 @@ final class AppModel: ObservableObject {
             Task { @MainActor in
                 self?.driver.reapplyAll()
                 self?.driver.checkTap()
+                self?.driver.displaysChanged()
             }
+        }
+        NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.driver.displaysChanged() }
         }
         frontmostChanged(NSWorkspace.shared.frontmostApplication)
     }

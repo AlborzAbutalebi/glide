@@ -306,6 +306,11 @@ final class Driver {
         }
     }
 
+    /// The screens changed: rebuild the display link that paces smooth scrolling.
+    func displaysChanged() {
+        engine.output.displaysChanged()
+    }
+
     /// Re-applies everything, e.g. after the Mac wakes up.
     func reapplyAll() {
         hidQueue.async {
@@ -352,18 +357,25 @@ final class Driver {
 }
 
 /// Per-mouse pointer acceleration, set on the mouse's HID service only. macOS resets it
-/// when the mouse reconnects; Glide applies it again each time.
+/// when the mouse reconnects or the system setting changes; Glide applies it again each time.
+///
+/// Apps can't set HIDUseLinearScalingMouseAcceleration (only WindowServer may), so "off"
+/// uses the long-standing HIDMouseAcceleration value of -1, which turns acceleration off
+/// for this mouse. DPI then sets the speed.
 enum PointerTuning {
     private static var changed = Set<Int>()
+    private static let key = "HIDMouseAcceleration" as CFString
 
     static func apply(_ mode: PointerAcceleration, productID: Int) {
         guard mode == .off || changed.contains(productID) else { return }
-        let linear: Bool
+        let value: Int
         if mode == .off {
-            linear = true
+            value = -65536 // -1.0 in 16.16 fixed point
             changed.insert(productID)
         } else {
-            linear = CFPreferencesCopyAppValue("com.apple.mouse.linear" as CFString, kCFPreferencesAnyApplication) as? Bool ?? false
+            // Back to the speed set in System Settings > Mouse.
+            let scaling = (CFPreferencesCopyAppValue("com.apple.mouse.scaling" as CFString, kCFPreferencesAnyApplication) as? NSNumber)?.doubleValue ?? 1.0
+            value = Int((scaling * 65536).rounded())
             changed.remove(productID)
         }
         let client = IOHIDEventSystemClientCreateSimpleClient(kCFAllocatorDefault)
@@ -375,8 +387,8 @@ enum PointerTuning {
             let product = IOHIDServiceClientCopyProperty(service, kIOHIDProductIDKey as CFString) as? Int
             guard vendor == 0x046D, product == productID,
                   IOHIDServiceClientConformsTo(service, UInt32(kHIDPage_GenericDesktop), UInt32(kHIDUsage_GD_Mouse)) != 0 else { continue }
-            if IOHIDServiceClientSetProperty(service, "HIDUseLinearScalingMouseAcceleration" as CFString, linear as CFBoolean) { count += 1 }
+            if IOHIDServiceClientSetProperty(service, key, value as CFNumber) { count += 1 }
         }
-        Log.info("pointer acceleration \(linear ? "off (linear)" : "on") for \(count) service(s)")
+        Log.info("pointer acceleration \(mode == .off ? "off" : "back to the macOS setting") for \(count) service(s)")
     }
 }
